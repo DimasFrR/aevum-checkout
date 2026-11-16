@@ -8,7 +8,7 @@ export interface Network {
   /** Short name for the network switcher. */
   label: string;
   chain: Chain;
-  /** Your Checkout on this network, if you deployed one. */
+  /** Your PaymentRequest on this network, if you deployed one. */
   checkout?: Address;
   /** Only scan events from this block onward on the Activity page. */
   deployBlock?: bigint;

@@ -6,7 +6,7 @@ import { useAccount, useBalance, useBytecode, useReadContract, useWatchAsset } f
 import { CheckIcon, CrossIcon, WarnIcon } from "@/components/Icons";
 import { useToken } from "@/components/useToken";
 import { useNetwork } from "@/lib/network";
-import { short } from "@/lib/order";
+import { short } from "@/lib/requests";
 
 type Status = "ok" | "warn" | "bad" | "idle";
 interface Check {
@@ -87,12 +87,12 @@ export default function SetupPage() {
           ? { title: "tUSD8 balance", status: "warn", value: "0 tUSD8", detail: DISCORD_FAUCET, action: addToken }
           : { title: `${token.symbol} balance`, status: "warn", value: "0", detail: chainMode === "fork" ? "On a fork, give yourself tUSD8 with `make deal TO=<address>`." : "MockUSD8 lets anyone mint: `make mint TO=<address>`.", action: addToken },
     !checkoutAddress
-      ? { title: "Checkout contract", status: "warn", value: "not set", detail: chainMode === "aevum" ? "Deploy it with `make deploy-aevum`, then set NEXT_PUBLIC_CHECKOUT_AEVUM in web/.env.local." : chainMode === "fork" ? "Deploy it with `make deploy-fork`, then set NEXT_PUBLIC_CHECKOUT_FORK in web/.env.local." : "Deploy it with `make deploy-local`, then set NEXT_PUBLIC_CHECKOUT_LOCAL in web/.env.local." }
+      ? { title: "PaymentRequest contract", status: "warn", value: "not set", detail: chainMode === "aevum" ? "Deploy it with `make deploy-aevum`, then set NEXT_PUBLIC_CHECKOUT_AEVUM in web/.env.local." : chainMode === "fork" ? "Deploy it with `make deploy-fork`, then set NEXT_PUBLIC_CHECKOUT_FORK in web/.env.local." : "Deploy it with `make deploy-local`, then set NEXT_PUBLIC_CHECKOUT_LOCAL in web/.env.local." }
       : code.isLoading
-        ? { title: "Checkout contract", status: "idle", value: short(checkoutAddress), detail: "Looking it up…" }
+        ? { title: "PaymentRequest contract", status: "idle", value: short(checkoutAddress), detail: "Looking it up…" }
         : code.data && code.data !== "0x"
-          ? { title: "Checkout contract", status: "ok", value: short(checkoutAddress), detail: "Deployed and reachable." }
-          : { title: "Checkout contract", status: "bad", value: short(checkoutAddress), detail: `No contract at this address on ${appChain.name}. Check the address in web/.env.local.` },
+          ? { title: "PaymentRequest contract", status: "ok", value: short(checkoutAddress), detail: "Deployed and reachable." }
+          : { title: "PaymentRequest contract", status: "bad", value: short(checkoutAddress), detail: `No contract at this address on ${appChain.name}. Check the address in web/.env.local.` },
   ];
 
   const passed = checks.filter((c) => c.status === "ok").length;

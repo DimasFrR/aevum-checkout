@@ -1,7 +1,7 @@
 import type { Address, Hex } from "viem";
 import { tusd8Domain } from "./contracts";
 
-/** EIP-712 types for the message a buyer signs to pay `Checkout.payWithAuthorization`. */
+/** EIP-712 types for the message a buyer signs to pay `PaymentRequest.payWithAuthorization`. */
 export const receiveWithAuthorizationTypes = {
   ReceiveWithAuthorization: [
     { name: "from", type: "address" },
@@ -15,12 +15,12 @@ export const receiveWithAuthorizationTypes = {
 
 export interface CheckoutAuthorization {
   from: Address;
-  /** Must be the Checkout contract. */
+  /** Must be the PaymentRequest contract. */
   to: Address;
   value: bigint;
   validAfter: bigint;
   validBefore: bigint;
-  /** Must be `Checkout.authorizationNonce(orderId)`. */
+  /** Must be `PaymentRequest.authorizationNonce(requestId)`. */
   nonce: Hex;
 }
 

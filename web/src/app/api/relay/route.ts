@@ -7,23 +7,24 @@ import {
   isAddress,
   isHex,
   parseSignature,
-  parseUnits,
   type Hex,
 } from "viem";
 import { nonceManager, privateKeyToAccount, type PrivateKeyAccount } from "viem/accounts";
-import { aevumFork, checkoutAbi, isAnvilAccount, localAnvil, TUSD8_DECIMALS } from "@aevum-kit/aevum";
+import { aevumFork, isAnvilAccount, localAnvil, paymentRequestAbi } from "@aevum-kit/aevum";
 import { defaultNetwork, networkByChainId, type Network } from "@/lib/env";
 import { explain } from "@/lib/errors";
-import { priceOf } from "@/lib/order";
 
 /**
  * The relayer behind "Gasless" checkout. The buyer only signs; this route submits
- * Checkout.payWithAuthorization and pays the gas from RELAYER_PRIVATE_KEY.
+ * PaymentRequest.payWithAuthorization and pays the gas from RELAYER_PRIVATE_KEY.
  *
  * Anyone on the internet can call this route, and every transaction it sends costs YOUR gas.
  * The rails, in the order they run:
- *  1. Only YOUR Checkout, only payWithAuthorization. It never forwards arbitrary calls.
- *  2. Only the price your app set for that order (priceOf). Dust payments to burn gas are refused.
+ *  1. Only YOUR PaymentRequest, only payWithAuthorization. It never forwards arbitrary calls.
+ *  2. Only the amount stored on-chain for that request (requestOf). The client sends no
+ *     amount at all, so a tampered amount can't change the payment — and a signature for a
+ *     different amount fails simulation anyway, because the contract passes the stored
+ *     amount to receiveWithAuthorization.
  *  3. Not already paid, and not already being submitted.
  *  4. Simulated first, so a bad or expired signature costs nothing.
  *  5. Rate limits per IP and per payer, and a daily cap on transactions.
@@ -41,6 +42,7 @@ const DAILY_TX_LIMIT = Number(process.env.RELAYER_DAILY_TX_LIMIT ?? 500);
 const IN_FLIGHT_MS = 120_000;
 const LOCAL_CHAINS = new Set<number>([localAnvil.id, aevumFork.id]);
 const isDev = process.env.NODE_ENV !== "production";
+const ZERO_ADDRESS = "0x0000000000000000000000000000000000000000";
 
 // One account for the whole process, so viem's nonce manager can hand out nonces to
 // concurrent requests without two transactions colliding.
@@ -132,12 +134,12 @@ export async function POST(req: Request) {
     return fail("Invalid JSON.");
   }
 
-  // Only networks the app is configured for, and only their Checkout.
+  // Only networks the app is configured for, and only their PaymentRequest.
   const net = networkFor(body.chainId);
   if (!net) return fail("This network isn't enabled in the app.");
   const account = usable(relayer(), net);
-  const checkoutAddress = net.checkout;
-  if (!account || !checkoutAddress) {
+  const contractAddress = net.checkout;
+  if (!account || !contractAddress) {
     // Which settings are missing is useful while you build, and nobody else's business once deployed.
     return fail(
       isDev
@@ -147,16 +149,15 @@ export async function POST(req: Request) {
     );
   }
 
-  const { orderId, from, amount, validAfter, validBefore, signature } = body;
+  const { requestId, from, validAfter, validBefore, signature } = body;
   if (
-    !(typeof orderId === "string" && isHex(orderId) && orderId.length === 66) ||
+    !(typeof requestId === "string" && isHex(requestId) && requestId.length === 66) ||
     !(typeof from === "string" && isAddress(from)) ||
-    !isUint(amount) || !isUint(validAfter) || !isUint(validBefore) ||
+    !isUint(validAfter) || !isUint(validBefore) ||
     !(typeof signature === "string" && isHex(signature))
   ) {
     return fail("Malformed payment request.");
   }
-  if (BigInt(amount) !== parseUnits(priceOf(orderId), TUSD8_DECIMALS)) return fail("The amount doesn't match this order's price.");
   const now = BigInt(Math.floor(Date.now() / 1000));
   if (BigInt(validBefore) > now + MAX_WINDOW_SECONDS) return fail("Signature window is too long (max 1 hour).");
   if (limited(`payer:${from.toLowerCase()}`, PER_PAYER_PER_MINUTE)) return fail("Too many payments from this address. Wait a minute.", 429);
@@ -173,13 +174,21 @@ export async function POST(req: Request) {
   const client = createPublicClient({ chain: net.chain, transport });
   const wallet = createWalletClient({ account, chain: net.chain, transport });
 
-  const flightKey = `${net.chain.id}:${orderId.toLowerCase()}`;
-  if (!claimInFlight(flightKey)) return fail("This order is already being submitted.", 409);
+  // The amount comes from the contract, never from the caller. Unknown or already-paid
+  // requests are refused before anything is simulated.
+  let requestAmount: bigint;
   try {
-    if (await client.readContract({ address: checkoutAddress, abi: checkoutAbi, functionName: "isPaid", args: [orderId] })) {
-      inFlight.delete(flightKey);
-      return fail("This order is already paid. Start a new order.", 409);
-    }
+    const req = await client.readContract({ address: contractAddress, abi: paymentRequestAbi, functionName: "requestOf", args: [requestId as Hex] });
+    if (req.merchant.toLowerCase() === ZERO_ADDRESS) return fail("No such request on this network.");
+    if (req.paid) return fail("This request is already paid.", 409);
+    requestAmount = req.amount;
+  } catch (e) {
+    return fail(explain(e), 503);
+  }
+
+  const flightKey = `${net.chain.id}:${(requestId as string).toLowerCase()}`;
+  if (!claimInFlight(flightKey)) return fail("This request is already being submitted.", 409);
+  try {
     if (overDailyLimit()) {
       inFlight.delete(flightKey);
       return fail("The relayer reached its daily limit. Use Standard mode.", 503);
@@ -187,15 +196,15 @@ export async function POST(req: Request) {
 
     const call = {
       account,
-      address: checkoutAddress,
-      abi: checkoutAbi,
+      address: contractAddress,
+      abi: paymentRequestAbi,
       functionName: "payWithAuthorization",
-      args: [orderId, from, BigInt(amount), BigInt(validAfter), BigInt(validBefore), vNum, r, s],
+      args: [requestId as Hex, from as Hex, BigInt(validAfter), BigInt(validBefore), vNum, r, s],
     } as const;
     await client.simulateContract(call);
     const hash = await wallet.writeContract({ ...call, type: "legacy" });
     sentToday++;
-    return NextResponse.json({ hash });
+    return NextResponse.json({ hash, amount: requestAmount.toString() });
   } catch (e) {
     inFlight.delete(flightKey);
     // Out of gas here means the RELAYER is out of gas, not the buyer.

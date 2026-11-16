@@ -27,7 +27,7 @@ export function Header() {
         <div className="shell">
           <Link href="/" className="brand">
             <span className="brand-mark" aria-hidden="true" />
-            <span className="brand-name">Aevum Starter Kit</span>
+            <span className="brand-name">Aevum Checkout</span>
           </Link>
           <nav className="nav" aria-label="Main">
             {links.map((l) => {

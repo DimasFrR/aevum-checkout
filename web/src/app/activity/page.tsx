@@ -1,6 +1,6 @@
 "use client";
 
-import { checkoutAbi, getLogsChunked, txUrl } from "@aevum-kit/aevum";
+import { getLogsChunked, paymentRequestAbi, txUrl } from "@aevum-kit/aevum";
 import { useQuery } from "@tanstack/react-query";
 import Link from "next/link";
 import { useState } from "react";
@@ -8,7 +8,7 @@ import { formatUnits, getAbiItem, type PublicClient } from "viem";
 import { useAccount, usePublicClient } from "wagmi";
 import { useToken } from "@/components/useToken";
 import { useNetwork } from "@/lib/network";
-import { orderLabel, short } from "@/lib/order";
+import { requestLabel, short } from "@/lib/requests";
 
 const WINDOWS = [
   { blocks: 1_000n, label: "Last 1k blocks" },
@@ -39,7 +39,7 @@ export default function ActivityPage() {
       setProgress(0);
       const result = await getLogsChunked(client!, {
         address: checkoutAddress!,
-        event: getAbiItem({ abi: checkoutAbi, name: "Paid" }),
+        event: getAbiItem({ abi: paymentRequestAbi, name: "Paid" }),
         args: onlyMine && address ? { payer: address } : undefined,
         fromBlock: from,
         toBlock: head,
@@ -55,10 +55,10 @@ export default function ActivityPage() {
     <main className="shell">
       <div className="page-head">
         <div>
-          <p className="eyebrow">Example · reading events</p>
+          <p className="eyebrow">Aevum Checkout · reading events</p>
           <h1>Payment activity</h1>
           <p className="lede">
-            Every <code>Paid</code> event from your Checkout. Aevum serves at most 1,000 blocks per <code>eth_getLogs</code> call, so the kit
+            Every <code>Paid</code> event from PaymentRequest. Aevum serves at most 1,000 blocks per <code>eth_getLogs</code> call, so the app
             reads in chunks.
           </p>
         </div>
@@ -74,7 +74,7 @@ export default function ActivityPage() {
 
       {!checkoutAddress ? (
         <div className="card empty">
-          No Checkout configured for {net.label}. Set <code>NEXT_PUBLIC_CHECKOUT_{net.key.toUpperCase()}</code> in <code>web/.env.local</code>.
+          No PaymentRequest configured for {net.label}. Set <code>NEXT_PUBLIC_CHECKOUT_{net.key.toUpperCase()}</code> in <code>web/.env.local</code>.
         </div>
       ) : (
         <section className="card flush">
@@ -120,7 +120,7 @@ export default function ActivityPage() {
               <table className="data">
                 <thead>
                   <tr>
-                    <th>Order</th>
+                    <th>Request</th>
                     <th>Payer</th>
                     <th className="right">Amount</th>
                     <th className="right">Block</th>
@@ -130,14 +130,14 @@ export default function ActivityPage() {
                 <tbody>
                   {logs.data.items.map((l) => (
                     <tr key={`${l.transactionHash}-${l.logIndex}`}>
-                      <td className="mono">{l.args.orderId ? orderLabel(l.args.orderId) : "—"}</td>
+                      <td className="mono">{l.args.requestId ? requestLabel(l.args.requestId) : "—"}</td>
                       <td className="mono">{short(l.args.payer ?? "")}</td>
                       <td className="right num">
                         {formatUnits(l.args.amount ?? 0n, token.decimals)} {token.symbol}
                       </td>
                       <td className="right num">{l.blockNumber?.toString()}</td>
                       <td style={{ display: "flex", gap: 14 }}>
-                        <Link href={`/receipts/${l.args.orderId}?tx=${l.transactionHash}&chain=${appChain.id}`}>Receipt</Link>
+                        <Link href={`/receipts/${l.args.requestId}?tx=${l.transactionHash}&chain=${appChain.id}`}>Receipt</Link>
                         {hasExplorer && l.transactionHash && (
                           <a href={txUrl(l.transactionHash)} target="_blank" rel="noreferrer">
                             Tx
